@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-regression"
+version = "0.1.0"
+description = "Single-agent RAG regression-test experiments on SWE-bench"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest==8.4.2"]
+
+[project.scripts]
+rag-regression = "rag_regression.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rag_regression*"]
+
+[tool.setuptools.package-data]
+rag_regression = ["runtime.py"]
