@@ -1,7 +1,8 @@
 # Krav — RAG Regression Test Engineer
 
-Status: beslutad inriktning; teknikval och budgetar öppna. Läranderepo.
-Användaren beslutar och godkänner implementation
+Status: första implementation. Offlineflöde och en riktig SWE-bench-före/efter-körning verifierade.
+API-genererade tester och full jämförelse på urvalet återstår.
+Användaren har godkänt implementationen. Läranderepo; inga benchmarkresultat utlovas.
 
 ## Mål och omfattning
 
@@ -72,27 +73,28 @@ Granska byggstegen tillsammans. Återkopplingsloopen behöver inte slå baslinje
 
 ## Klart när
 
-- [ ] Nödvändiga öppna beslut nedan är fattade.
+- [x] Nödvändiga startval är implementerade och konfigurerbara.
 - [ ] F01–F16 är demonstrerade, inklusive en observation som ändrar agentens nästa handling.
-- [ ] Ett kontrollerat exempel skiljer relevant före/efter-resultat från importfel, miljöfel och ej körda tester.
-- [ ] Separation från fix/facit samt budgetar och stoppvillkor är kontrollerade.
+- [x] Kontrollerade exempel skiljer före/efter-resultat från importfel, miljöfel och ej körda tester.
+- [x] Automatiska kontroller verifierar fältseparation från facit, integritet och budgetstopp.
 - [ ] Båda jämförelsemetoderna har körts på beslutat urval; hinder/exkluderingar är redovisade.
 - [ ] Rapporten visar resultat, resursåtgång och begränsningar; README beskriver installation och användning.
 
-## Öppna beslut
+## Vald implementation
 
-- SWE-bench-variant, uppgifter/repon, urvalsmetod och antal. Ett repo/10–20 buggar är endast tidigare förslag.
-- Språk/version, pakethantering, struktur, gränssnitt och artefaktformat.
-- Lokal/extern körmiljö, maskinresurser, isolering och uppgifternas beroenden.
-- Genererings-/bedömningsmodell, embeddingmodell och budget.
-- Index/vector store, koduppdelning, träffantal och fusionens inställningar.
-- Agentramverk, verktyg och sparat tillstånd; CRAG:s bedömningsformat/kriterier.
-- Gränser för sökningar, testförsök, tid, tokens och kostnad; definition av utebliven progression. Tre försök är endast förslag.
-- Bedömning av relevant buggfel, manuell granskning och oklara fall.
-- Baslinjens sökmetoder och jämförelsebudgetar; eventuellt numeriskt framgångsmål.
+- SWE-bench Lite: 5 dev + 10 test, seed 42, utan överlappande uppgifts-ID:n. Urval låses i selection.json.
+- Python 3.9+, standardbibliotek, CLI, JSON/JSONL/CSV. En explicit agentloop utan extra ramverk.
+- GPT-6 Luna via Responses API; text-embedding-3-small och BM25 med RRF. Lokalt JSON-index, 8 träffar.
+- CRAG med strukturerad bedömning och riktade följdsökningar; ingen fri webbsökning.
+- Docker, en färsk container per körning, samma pinnade image före/efter. Inga host-mounts eller nätverk under testet.
+- Högst 3 testversioner, 6 sökomgångar, 3 frågor/omgång, 24 API-anrop, 100 000 tokens och 10 minuter per uppgift.
+- 120 sekunder/test; stopp efter 2 upprepade steg utan ny information. Installation/indexering har separat budget.
+- Starttak $1/genereringsuppgift; batch kräver explicit totalt kostnadstak. Ingen betald körning utan nyckel.
+- Baslinje: samma sökmetoder men 1 sökomgång och 1 testversion. Relevans granskas manuellt efter fail-to-pass.
 
-Föreslagen byggordning: före/efter-körning, enkel RAG-baslinje, sökmetoder,
-CRAG/agentloop, jämförelse. Ännu inte beslutad.
+Återstår att mäta: Luna mot Terra på dev, lämpliga gränser per repository,
+miljökompatibilitet och resultat på testurvalet. Inget numeriskt framgångsmål är satt.
+Se [README](README.md) för körning och [METHODS](METHODS.md) för metodernas begränsningar.
 
 ## Referenser
 

@@ -19,3 +19,5 @@ Read the applicable `SKILL.md` once; load others only when triggered.
 - Preserve raw test evidence for evaluation; RTK compression is for development output.
 - Use lowercase kebab-case for skill folders, `SKILL.md` for skill entrypoints and `AGENTS.md` for repo instructions.
 - Keep docs short, links valid and requirements intact. Avoid duplicate instructions and vendored tool source unless needed.
+- Verify changes with `python3 -m unittest discover -s tests -v`; run `python3 -m rag_regression demo --out NEW_PATH` for the offline flow.
+- Keep `.env` local and git-ignored. Never populate it unless the user asks; live API runs require the user's key.
