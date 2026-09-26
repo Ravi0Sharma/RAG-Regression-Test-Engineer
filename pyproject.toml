@@ -11,6 +11,12 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest==8.4.2"]
+studio = [
+    "langgraph==1.2.12",
+    "langsmith==0.14.1",
+    "langgraph-cli[inmem]==0.4.32",
+    "langgraph-api==0.15.1",
+]
 
 [project.scripts]
 rag-regression = "rag_regression.cli:main"
