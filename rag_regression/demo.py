@@ -72,7 +72,8 @@ class DemoRunner:
             return result
 
 
-def demo(destination):
+def prepare_demo(destination):
+    """Create the shared synthetic fixture without running or evaluating an agent."""
     destination = Path(destination)
     if destination.exists():
         raise ValueError("Demo output exists; select a new directory")
@@ -90,6 +91,14 @@ def demo(destination):
     write_json(selection, {"ids": [task["instance_id"]], "dataset": "synthetic-demo"})
     config = Config(retrieval="lexical")
     build_index(task_directory, config)
+    return task_directory, oracle, selection
+
+
+def demo(destination):
+    destination = Path(destination)
+    task_directory, oracle, selection = prepare_demo(destination)
+    task = read_json(task_directory / "task.json")
+    config = Config(retrieval="lexical")
     for mode in ("baseline", "agentic"):
         output = destination / "runs" / mode / task["instance_id"]
         output.mkdir(parents=True)
