@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "regression_demo": "./rag_regression/studio.py:graph",
+    "evaluate_demo": "./rag_regression/studio.py:evaluation_graph"
+  },
+  "env": ".env"
+}
