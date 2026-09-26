@@ -40,12 +40,15 @@ Fixar som kräver omkompilering behöver en anpassad körmiljö; git-apply räck
 
 ## Verifierat lokalt
 
-- 30 automatiska tester, inklusive riktig pytest-exekvering och det syntetiska agentflödet.
+Studio: en separat pedagogisk LangGraph-graf återanvänder demo, sökning och testkörare.
+Facit läses i en andra graf först efter frysning. Se [STUDIO.md](STUDIO.md) för körning och begränsningar.
+
+- 34 automatiska tester med Studio-tillägget, inklusive riktig pytest-exekvering, det syntetiska agentflödet och separat grafutvärdering.
 - SWE-bench Lite hämtat: 5 dev/10 test utan överlapp; pvlib-koden indexerad på exakt base commit.
 - `pvlib__pvlib-python-1154`: ett manuellt skrivet kontrolltest ger NaN före fixen och 0 efteråt.
   Samma frysta kod, samma pinnade Docker-image. Loggar: `runs/swe-smoke-numpy1/evaluation/`.
 - Upstream-image behövde NumPy 1.26.4; reproducerbar justering finns i `docker/pvlib-0.8.Dockerfile`.
-- Ingen modell-/embedding-API-körning gjord. `.env` tom. Resultaten ovan mäter inte Luna eller RAG-kvalitet.
+- Ingen modell-/embedding-API-körning gjord. Resultaten ovan mäter inte Luna eller RAG-kvalitet.
 
 ## Källor
 

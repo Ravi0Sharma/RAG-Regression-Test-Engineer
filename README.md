@@ -4,6 +4,16 @@ Läranderepo: en agent söker kod och genererar regressionstester från SWE-benc
 Modellen körs via OpenAI API; testerna körs i separata Docker-containrar.
 Python 3.9+, Git och Docker. CLI:t använder bara standardbiblioteket.
 
+## Se flödet i Studio
+
+LangGraph-demot har synliga noder, in-/utdata och svenska förklaringar.
+Separat graf utvärderar det frysta testet. Fasta modellsvar; ingen OpenAI-nyckel behövs.
+Studio kräver Python 3.11+ och extra beroenden. [Starta och följ demot](STUDIO.md).
+
+```sh
+.venv/bin/langgraph dev --studio-url https://eu.smith.langchain.com
+```
+
 ## Prova utan API
 
 ```sh
@@ -18,7 +28,7 @@ Valfritt: `python3 -m pip install -e '.[test]'` installerar CLI-kommandot och py
 
 ## Kör SWE-bench
 
-`.env` levereras tom och är git-ignorerad. För API-anrop: sätt `OPENAI_API_KEY` i din lokala
+`.env` är lokal och git-ignorerad; Studio-inställningarna använder LangSmith. För modell-API-anrop: sätt `OPENAI_API_KEY` i din lokala
 `.env` eller som miljövariabel. Nyckeln loggas aldrig. Starta Docker; förbered en uppgift i taget.
 
 ```sh
@@ -83,10 +93,9 @@ python3 -m rag_regression batch data/dev --out runs/batch-1 --max-total-usd 5
 Batchbudgeten gäller generering; indexering/Docker ingår inte. Utvärdering sker efter generering
 och återförs aldrig till agenten. Lås metod och konfiguration på dev innan `data/test` används.
 
+- [Beslutskarta: varje steg och varför det finns](DECISIONS.md)
 - [Krav och verifieringsstatus](requirements.md)
 - [Metoder och kodkarta](METHODS.md)
 - [Arbetssätt och skills](AGENTS.md)
 - [RAG From Scratch](https://github.com/langchain-ai/rag-from-scratch)
 - [SWE-bench](https://github.com/SWE-bench/SWE-bench)
-
-RTK gäller utvecklingskommandon när installerat. Fullständiga testloggar sparas alltid.
