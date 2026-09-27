@@ -148,7 +148,7 @@
   <rect class="card" x="755" y="1295" width="340" height="185"/>
   <text x="774" y="1327" class="card-title">Decide + freeze</text>
   <text x="774" y="1363" class="body">Search, revise, candidate, stop.</text>
-  <text x="774" y="1393" class="body" style="font-size:19px">Agentic: 6 searches / 3 versions.</text>
+  <text x="774" y="1393" class="body" style="font-size:19px">Agentic: limits from config.json.</text>
   <text x="774" y="1431" class="body">Freeze code + path + hash in</text>
   <text x="774" y="1461" class="code">frozen.json</text>
   <path class="flow" d="M395 1388 H417"/>
