@@ -17,7 +17,7 @@ from .demo import demo
 from .evaluation import evaluate, report, review
 from .model import OpenAIModel
 from .retrieval import build_index
-from .runner import DockerRunner, docker_command, prepare_image
+from .runner import DockerRunner, docker_command, prepare_image, check_runtime
 
 
 def doctor():
@@ -46,6 +46,7 @@ def run_one(task_directory, output, mode, config):
     docker_command(["image", "inspect", runtime["image"]])
     if not (directory / "index.json").exists():
         raise ValueError("Build the index before generation")
+    check_runtime(runtime, output / "runtime-check.json")
     budget = Budget(config)
     events = Events(output / "events.jsonl")
     model = OpenAIModel(config, budget, events)
@@ -83,6 +84,16 @@ def parser():
     run.add_argument("task", type=Path)
     run.add_argument("--mode", choices=["baseline", "agentic"], default="agentic")
     run.add_argument("--out", type=Path, required=True)
+    handoff = commands.add_parser("handoff", help="Manual model exchange; dev tasks only, no model API")
+    actions = handoff.add_subparsers(dest="handoff_action", required=True)
+    start = actions.add_parser("start")
+    start.add_argument("instance_id")
+    start.add_argument("--mode", choices=["baseline", "agentic"], default="agentic")
+    for action in ("status", "advance", "respond"):
+        entry = actions.add_parser(action)
+        entry.add_argument("run_id")
+        if action == "respond":
+            entry.add_argument("--file", type=Path, required=True)
     batch = commands.add_parser("batch", help="Run both variants sequentially, generation only")
     batch.add_argument("tasks", type=Path)
     batch.add_argument("--out", type=Path, required=True)
@@ -134,6 +145,19 @@ def main(argv=None):
             result = {"chunks": len(index["chunks"]), **budget.summary()}
         elif command == "run":
             result = run_one(arguments.task, arguments.out, arguments.mode, config)
+        elif command == "handoff":
+            from .handoff import Handoff
+            store = Handoff()
+            action = arguments.handoff_action
+            if action == "start":
+                state = store.start(arguments.instance_id, arguments.mode, config)
+                result = store.advance(state["run_id"])
+            elif action == "respond":
+                result = store.submit(arguments.run_id, read_json(arguments.file))
+            elif action == "advance":
+                result = store.advance(arguments.run_id)
+            else:
+                result = store.status(arguments.run_id)
         elif command == "batch":
             if arguments.out.exists() or arguments.max_total_usd <= 0:
                 raise ValueError("Use a new output path and positive spending cap")
