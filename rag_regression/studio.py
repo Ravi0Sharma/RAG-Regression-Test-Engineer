@@ -17,6 +17,7 @@ from rag_regression.evaluation import evaluate
 from rag_regression.model import SCHEMAS, validate_schema
 from rag_regression.retrieval import Retriever
 from rag_regression.runner import validate_test
+from rag_regression.workflow import select_sources
 
 
 RUNS_ROOT = Path(__file__).resolve().parent.parent / "runs" / "studio"
@@ -34,6 +35,7 @@ class DemoState(DemoInput, total=False):
     route: dict
     sources: list[dict]
     search_trace: dict
+    bundle_anchor_id: str
     assessment: dict
     proposal: dict
     test: dict
@@ -89,7 +91,7 @@ def prepare(state: DemoInput):
     write_json(output / "config.json", asdict(CONFIG))
     initial = {
         "mode": mode, "run_id": run_id, "task": task, "started": time.time(),
-        "route": {}, "sources": [], "search_trace": {}, "assessment": {},
+        "route": {}, "sources": [], "search_trace": {}, "bundle_anchor_id": None, "assessment": {},
         "proposal": {}, "test": {}, "result": {}, "decision": {}, "model_input": {},
         "search_rounds": 0, "test_versions": 0, "test_runs": 0,
         "candidate": False, "stop_reason": "", "next_node": "plan",
@@ -111,9 +113,13 @@ def search(state: DemoState):
     _, task_directory, _ = run_paths(state["run_id"])
     retriever = Retriever(read_json(task_directory / "index.json"), state["task"], CONFIG)
     route = state["route"]
-    sources, trace = retriever.search(route["queries"], route["kinds"], route["path_glob"])
+    hits, trace = retriever.search(route["queries"], route["kinds"], route["path_glob"])
+    sources, trace = select_sources(retriever, state["sources"], hits, trace,
+                                    state["task"]["problem_statement"], CONFIG.top_k,
+                                    state.get("bundle_anchor_id"))
     return update(state, "search", "Ordsökning och RRF hittade kodbitar. Öppna sources för text, fil och radnummer.",
-                  sources=sources, search_trace=trace, search_rounds=state["search_rounds"] + 1, next_node="assess")
+                  sources=sources, search_trace=trace, bundle_anchor_id=trace.get("bundle_anchor_id"),
+                  search_rounds=state["search_rounds"] + 1, next_node="assess")
 
 
 def assess(state: DemoState):
