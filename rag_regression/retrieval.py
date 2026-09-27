@@ -234,12 +234,31 @@ class Retriever:
                             and self._class_definition(c)]
         base = self._local_base_context(owner, siblings) if owner else None
         setup_methods = [c for c in siblings if c["symbol"] in setup and c["symbol"] != owner]
+        # Companion tests of the same command expose alternate fixture/settings
+        # choices. Keep this bounded and in the same pinned source file.
+        calls = self._literal_calls(example)
+        related = [c for c in siblings if c["symbol"] != symbol
+                   and self.is_test_pattern(c["id"])
+                   and calls & self._literal_calls(c)][:2]
         groups = [imports, class_definition, [base] if base else [], setup_methods,
+                  related,
                   [c for c in siblings if c["symbol"] in helper_names],
                   [c for c in siblings if c["symbol"] == symbol],
                   [c for c in siblings if is_class and c["symbol"].startswith(symbol + ".")]]
         return list(dict.fromkeys(c["id"] for group in groups for c in group
                                   if c and c["id"] != key))
+
+    @staticmethod
+    def _literal_calls(source):
+        """Direct calls with a literal first argument, e.g. run_command('name')."""
+        try:
+            tree = ast.parse(textwrap.dedent(source["text"]))
+        except SyntaxError:
+            return set()
+        return {(node.func.id, node.args[0].value) for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.args and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)}
 
     @staticmethod
     def _class_definition(source):
