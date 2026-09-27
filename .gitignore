@@ -10,6 +10,7 @@ dist/
 data/
 runs/
 experiments/
+.local-docs/
 .pytest_cache/
 .coverage
 htmlcov/
