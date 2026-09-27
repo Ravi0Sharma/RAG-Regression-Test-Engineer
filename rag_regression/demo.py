@@ -34,7 +34,8 @@ class ScriptedModel:
         if stage == "plan":
             answer = {**route, "needs": ["normalization behavior", "test imports"]}
         elif stage == "assess":
-            answer = {**route, "sufficient": True, "missing": [], "contradictions": []}
+            answer = {**route, "sufficient": True, "missing": [], "contradictions": [],
+                      "missing_categories": [], "read_source_ids": []}
         elif stage == "generate":
             self.generations += 1
             answer = {"path": "test_rag_regression.py", "code": WRONG if self.generations == 1 else CORRECT,
