@@ -1,5 +1,6 @@
 """Fresh Docker container for each generated test. No host bind mounts or secrets."""
 
+import json
 import re
 import subprocess
 import time
@@ -64,6 +65,17 @@ def docker_command(arguments, timeout=60, check=True):
     return result
 
 
+def preflight_docker(runtime, retry_command):
+    """Check daemon access and the pinned image before committing Docker work."""
+    try:
+        docker_command(["image", "inspect", runtime["image"]])
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(
+            "Docker preflight failed: " + str(error) + ". Resolve Docker access or image availability, "
+            "then rerun " + retry_command + ". Workflow state is preserved; no model response is needed."
+        ) from error
+
+
 def prepare_image(task_directory, image=None, platform="linux/amd64", backend=None):
     directory = Path(task_directory)
     task = read_json(directory / "task.json")
@@ -77,7 +89,37 @@ def prepare_image(task_directory, image=None, platform="linux/amd64", backend=No
     identity = docker_command(["image", "inspect", "--format", "{{.Id}}", image]).stdout.strip()
     write_json(directory / "runtime.json", {"image": identity, "source_image": image,
                "platform": platform, "backend": backend or ("django" if task["repo"] == "django/django" else "pytest"),
-               "python": "/opt/miniconda3/envs/testbed/bin/python"})
+               "python": "/opt/miniconda3/envs/testbed/bin/python",
+               "refresh_package_metadata": task["repo"] == "sqlfluff/sqlfluff"})
+
+
+def check_runtime(runtime, output):
+    """Import the test backend offline before spending model work; preserve failures."""
+    module = {"pytest": "pytest", "django": "django", "unittest": "unittest"}[runtime["backend"]]
+    code = ("import importlib,json,sys; m=importlib.import_module(" + repr(module) + "); "
+            "print(json.dumps({'python':sys.version,'module':m.__name__,"
+            "'version':getattr(m,'__version__','stdlib')}))")
+    name = "rag-preflight-" + uuid.uuid4().hex[:16]
+    result = {"image": runtime["image"], "backend": runtime["backend"], "ready": False}
+    try:
+        process = docker_command(["run", "--rm", "--name", name, "--platform", runtime["platform"],
+            "--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--user", "65534:65534", "--workdir", "/testbed", "--entrypoint", runtime["python"],
+            runtime["image"], "-c", code], check=False)
+        result.update(exit_code=process.returncode, stdout=process.stdout, stderr=process.stderr)
+        if process.returncode == 0:
+            result.update(ready=True, versions=json.loads(process.stdout))
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        result["error"] = str(error)
+    finally:
+        try:
+            docker_command(["rm", "-f", name], check=False)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            result.update(ready=False, cleanup_error=str(error))
+        write_json(output, result)
+    if not result["ready"]:
+        raise RuntimeError("Test backend unavailable; inspect " + str(output))
+    return result
 
 
 class DockerRunner:
@@ -89,6 +131,8 @@ class DockerRunner:
             raise ValueError("Prepare and pin the image before running")
         if not re.fullmatch(r"[0-9a-f]{40}", task["base_commit"]):
             raise ValueError("Invalid base commit")
+        if type(runtime.get("refresh_package_metadata", False)) is not bool:
+            raise ValueError("refresh_package_metadata must be boolean")
 
     def run(self, test, directory, timeout, patch=None):
         directory = Path(directory)
@@ -118,6 +162,13 @@ class DockerRunner:
             head = execute(["exec", name, "git", "rev-parse", "HEAD"]).stdout.strip()
             if head != self.task["base_commit"]:
                 raise RuntimeError("Container commit mismatch")
+            if self.runtime.get("refresh_package_metadata", False):
+                # git clean removes editable-install entry points. Regenerate from
+                # the base source, offline, before any evaluation patch or test exists.
+                metadata = execute(["exec", name, self.runtime["python"], "setup.py", "egg_info"], check=False)
+                raw += metadata.stdout + metadata.stderr
+                if metadata.returncode:
+                    raise RuntimeError("Offline package metadata refresh failed")
             if patch is not None:
                 patch_path = directory / "fix.patch"
                 patch_path.write_text(patch, encoding="utf-8")
@@ -158,6 +209,7 @@ class DockerRunner:
         (directory / "output.log").write_text(raw, encoding="utf-8")
         result = classify(report, exit_code, raw, timed_out)
         result.update(seconds=round(time.monotonic() - started, 3), command=command,
-                      image=self.runtime["image"], backend=self.runtime["backend"])
+                      image=self.runtime["image"], backend=self.runtime["backend"],
+                      refresh_package_metadata=self.runtime.get("refresh_package_metadata", False))
         write_json(directory / "result.json", result)
         return result
