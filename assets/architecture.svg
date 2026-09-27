@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1600" role="img" aria-labelledby="title desc">
+  <title id="title">RAG Regression Test Engineer architecture</title>
+  <desc id="desc">Detailed flow from SWE-bench issue and pre-fix source through indexing, query translation, hybrid retrieval, CRAG, test generation, Docker execution, and separate before-and-after evaluation. The reference fix is isolated from the agent.</desc>
+  <defs>
+    <style>
+      .heading { font-family: "Trebuchet MS", Arial, sans-serif; font-weight: 700; fill: #263344; }
+      .label { font-family: "Trebuchet MS", Arial, sans-serif; font-weight: 700; }
+      .card-title { font-family: Arial, sans-serif; font-size: 24px; font-weight: 700; fill: #263344; }
+      .body { font-family: Arial, sans-serif; font-size: 21px; fill: #263344; }
+      .code { font-family: Menlo, Consolas, monospace; font-size: 19px; fill: #34445c; }
+      .flow { fill: none; stroke: #34445c; stroke-width: 3.5; marker-end: url(#arrow); }
+      .feedback { fill: none; stroke: #258648; stroke-width: 3.5; stroke-dasharray: 10 8; marker-end: url(#green-arrow); }
+      .oracle-flow { fill: none; stroke: #873ab1; stroke-width: 3.5; stroke-dasharray: 10 8; marker-end: url(#purple-arrow); }
+      .card { fill: #ffffff; fill-opacity: .88; stroke: #718096; stroke-width: 2; rx: 15; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#34445c"/></marker>
+    <marker id="green-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#258648"/></marker>
+    <marker id="purple-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#873ab1"/></marker>
+  </defs>
+  <rect width="1800" height="1600" fill="#fbfbf8"/>
+  <text x="60" y="70" class="code" font-weight="700">RAG REGRESSION / SYSTEM MAP</text>
+  <text x="60" y="132" class="heading" font-size="57">From SWE-bench issue to regression test</text>
+
+  <!-- Input: the public task and the separate oracle. -->
+  <rect x="60" y="170" width="1080" height="160" rx="23" fill="#fff0b2" stroke="#d5a420" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="88" y="214" class="label" fill="#9b7200" font-size="30">SWE-BENCH LITE / PUBLIC TASK</text>
+  <text x="88" y="258" class="body">Bug report + repository + exact pre-fix base_commit</text>
+  <text x="88" y="292" class="code">Only public task fields and the source snapshot reach the agent.</text>
+  <rect x="1180" y="170" width="560" height="160" rx="23" fill="#f1e2fa" stroke="#873ab1" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="1208" y="214" class="label" fill="#873ab1" font-size="30">ORACLE / ISOLATED</text>
+  <text x="1208" y="258" class="body">Reference fix stays separate.</text>
+  <text x="1208" y="292" class="code">Read only after test freeze.</text>
+
+  <!-- Indexing: source becomes traceable lexical and dense search material. -->
+  <rect x="60" y="380" width="800" height="430" rx="24" fill="#d8edff" stroke="#3974b8" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="88" y="425" class="label" fill="#2b64a5" font-size="32">INDEXING / BEFORE THE FIX</text>
+  <rect class="card" x="85" y="455" width="355" height="142"/>
+  <text x="106" y="487" class="card-title">1. Pin the source</text>
+  <text x="106" y="521" class="body">Download exact base commit.</text>
+  <text x="106" y="551" class="body">Hash the clean snapshot.</text>
+  <text x="106" y="579" class="code">No fix or Git history.</text>
+  <rect class="card" x="465" y="455" width="370" height="142"/>
+  <text x="486" y="487" class="card-title">2. Split into chunks</text>
+  <text x="486" y="521" class="body">AST: functions, classes, methods.</text>
+  <text x="486" y="551" class="body">Other files: bounded line windows.</text>
+  <text x="486" y="579" class="code">Up to 100 lines / about 6 KB.</text>
+  <rect class="card" x="85" y="620" width="355" height="150"/>
+  <text x="106" y="652" class="card-title">3. Attach provenance</text>
+  <text x="106" y="686" class="code">repo, commit, path, lines,</text>
+  <text x="106" y="714" class="code">symbol, kind, text, ID</text>
+  <text x="106" y="746" class="body">kind = code / tests / docs</text>
+  <rect class="card" x="465" y="620" width="370" height="150"/>
+  <text x="486" y="652" class="card-title">4. Build local index</text>
+  <text x="486" y="686" class="body">Store chunks in local JSON.</text>
+  <text x="486" y="716" class="body">Hybrid: embed path + chunk text.</text>
+  <text x="486" y="746" class="code">index.json + source hash</text>
+  <path class="flow" d="M440 526 H462"/>
+  <path class="flow" d="M650 597 V617"/>
+  <path class="flow" d="M440 695 H462"/>
+
+  <!-- Query translation: model choices are bounded by program constraints. -->
+  <rect x="900" y="380" width="840" height="430" rx="24" fill="#ffd9d7" stroke="#d44747" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="928" y="425" class="label" fill="#bd3636" font-size="32">QUERY TRANSLATION + ROUTING</text>
+  <rect class="card" x="925" y="455" width="370" height="142"/>
+  <text x="946" y="487" class="card-title">1. Plan / Multi-Query</text>
+  <text x="946" y="521" class="body">Issue → API, symptom, expected</text>
+  <text x="946" y="551" class="body">behavior, existing test pattern.</text>
+  <text x="946" y="579" class="code">Up to 3 search terms.</text>
+  <rect class="card" x="1320" y="455" width="395" height="142" style="fill:#ffe0b4;stroke:#e3821c"/>
+  <text x="1341" y="487" class="card-title">2. Route the search</text>
+  <text x="1341" y="521" class="code">kinds = [code, tests, docs]</text>
+  <text x="1341" y="551" class="code">path_glob = "*" or "*.py"</text>
+  <text x="1341" y="579" class="body">Choose relevant material.</text>
+  <rect class="card" x="925" y="620" width="370" height="150" style="fill:#fff1aa;stroke:#d5a420"/>
+  <text x="946" y="652" class="card-title">3. Construct the query</text>
+  <text x="946" y="686" class="code">queries = [q1, q2, q3]</text>
+  <text x="946" y="714" class="code">+ kinds + path_glob</text>
+  <text x="946" y="746" class="body">Each term searches allowed chunks.</text>
+  <rect class="card" x="1320" y="620" width="395" height="150"/>
+  <text x="1341" y="652" class="card-title">4. Lock the scope</text>
+  <text x="1341" y="686" class="code">repo = task.repo</text>
+  <text x="1341" y="714" class="code">commit = task.base_commit</text>
+  <text x="1341" y="746" class="body">The agent cannot widen this filter.</text>
+  <path class="flow" d="M1295 526 H1317"/>
+  <path class="flow" d="M1110 597 V617"/>
+  <path class="flow" d="M1515 597 V617"/>
+  <path class="flow" d="M1295 695 H1317"/>
+
+  <!-- Parallel paths converge at retrieval. -->
+  <path class="flow" d="M540 330 V377"/>
+  <path class="flow" d="M990 330 V350 H1320 V377"/>
+  <path class="flow" d="M460 810 V867"/>
+  <path class="flow" d="M1120 810 V867"/>
+
+  <!-- Retrieval and assessment. -->
+  <rect x="60" y="870" width="1680" height="300" rx="24" fill="#d5f2db" stroke="#2d944e" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="88" y="916" class="label" fill="#247d3e" font-size="32">RETRIEVAL / RANKING / CRAG</text>
+  <rect class="card" x="85" y="945" width="290" height="172"/>
+  <text x="104" y="977" class="card-title">BM25</text>
+  <text x="104" y="1013" class="body">Lexical match against</text>
+  <text x="104" y="1043" class="body">path, symbol, chunk text.</text>
+  <text x="104" y="1085" class="code">Rank per query.</text>
+  <rect class="card" x="400" y="945" width="290" height="172"/>
+  <text x="419" y="977" class="card-title">Dense retrieval</text>
+  <text x="419" y="1013" class="body">Embed each query once.</text>
+  <text x="419" y="1043" class="body">Cosine vs chunk vectors.</text>
+  <text x="419" y="1085" class="code">Hybrid mode only.</text>
+  <rect class="card" x="715" y="945" width="290" height="172"/>
+  <text x="734" y="977" class="card-title">RAG Fusion / RRF</text>
+  <text x="734" y="1013" class="body">Fuse BM25 + dense,</text>
+  <text x="734" y="1043" class="body">then all query rankings.</text>
+  <text x="734" y="1085" class="code">Σ 1 / (60 + rank)</text>
+  <rect class="card" x="1030" y="945" width="320" height="172"/>
+  <text x="1049" y="977" class="card-title">Evidence package</text>
+  <text x="1049" y="1013" class="body">Default top 8 results.</text>
+  <text x="1049" y="1043" class="body">Reserve 1–2 Python test</text>
+  <text x="1049" y="1073" class="body">examples + bounded setup.</text>
+  <text x="1049" y="1100" class="code">imports, setup, helpers</text>
+  <rect class="card" x="1375" y="945" width="340" height="172"/>
+  <text x="1394" y="977" class="card-title">CRAG assessment</text>
+  <text x="1394" y="1013" class="body">Relevance, coverage, gaps,</text>
+  <text x="1394" y="1043" class="body">and contradictions.</text>
+  <text x="1394" y="1073" class="body">Weak → targeted search or</text>
+  <text x="1394" y="1103" class="body">bounded source-ID read.</text>
+  <path class="flow" d="M230 1117 V1140 H800 V1120"/>
+  <path class="flow" d="M545 1117 V1130 H920 V1120"/>
+  <path class="flow" d="M1005 1030 H1027"/>
+  <path class="flow" d="M1350 1030 H1372"/>
+  <path class="feedback" d="M1550 945 V840 H1515 V813"/>
+  <text x="1285" y="855" class="code" fill="#247d3e">missing evidence → another route</text>
+
+  <!-- Generation and feedback only see pre-fix material. -->
+  <rect x="60" y="1220" width="1060" height="310" rx="24" fill="#e8ddfa" stroke="#873ab1" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="88" y="1265" class="label" fill="#873ab1" font-size="32">GENERATION + FEEDBACK / ONE AGENT</text>
+  <rect class="card" x="85" y="1295" width="310" height="185"/>
+  <text x="104" y="1327" class="card-title">Generate</text>
+  <text x="104" y="1363" class="body">One standalone Python file:</text>
+  <text x="104" y="1393" class="code">test_rag_regression.py</text>
+  <text x="104" y="1431" class="body">Assert behavior supported</text>
+  <text x="104" y="1461" class="body">by the issue and sources.</text>
+  <rect class="card" x="420" y="1295" width="310" height="185"/>
+  <text x="439" y="1327" class="card-title">Run before the fix</text>
+  <text x="439" y="1363" class="body">Fresh pinned Docker image.</text>
+  <text x="439" y="1393" class="body">No network or host mounts.</text>
+  <text x="439" y="1431" class="body">Record execution, status,</text>
+  <text x="439" y="1461" class="body">full logs, and timeout.</text>
+  <rect class="card" x="755" y="1295" width="340" height="185"/>
+  <text x="774" y="1327" class="card-title">Decide + freeze</text>
+  <text x="774" y="1363" class="body">Search, revise, candidate, stop.</text>
+  <text x="774" y="1393" class="body" style="font-size:19px">Agentic: 6 searches / 3 versions.</text>
+  <text x="774" y="1431" class="body">Freeze code + path + hash in</text>
+  <text x="774" y="1461" class="code">frozen.json</text>
+  <path class="flow" d="M395 1388 H417"/>
+  <path class="flow" d="M730 1388 H752"/>
+  <path class="flow" d="M590 1170 V1217"/>
+
+  <!-- Evaluator reads oracle only after the frozen artifact exists. -->
+  <rect x="1160" y="1220" width="580" height="310" rx="24" fill="#f1e2fa" stroke="#873ab1" stroke-width="4" stroke-dasharray="12 9"/>
+  <text x="1188" y="1265" class="label" fill="#873ab1" font-size="32">SEPARATE EVALUATION</text>
+  <rect class="card" x="1185" y="1295" width="530" height="185"/>
+  <text x="1206" y="1329" class="body">Read oracle only after test freeze.</text>
+  <text x="1206" y="1363" class="body">Run identical test before / after patch.</text>
+  <text x="1206" y="1397" class="body">Match test IDs and require fail → pass.</text>
+  <text x="1206" y="1431" class="body">Human review checks bug relevance.</text>
+  <text x="1206" y="1465" class="body">Report baseline vs feedback loop.</text>
+  <path class="flow" d="M1120 1388 H1157"/>
+  <path class="oracle-flow" d="M1460 330 V350 H1767 V1388 H1743"/>
+
+  <text x="60" y="1575" class="code">Solid arrows: normal flow. Dashed green: evidence follow-up. Dashed purple: oracle enters evaluation only.</text>
+</svg>

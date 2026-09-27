@@ -9,3 +9,7 @@ build/
 dist/
 data/
 runs/
+experiments/
+.pytest_cache/
+.coverage
+htmlcov/
