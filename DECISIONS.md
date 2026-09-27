@@ -4,7 +4,7 @@
 Agenten skriver testet. SWE-bench tillhandahåller referensfixen för separat utvärdering.
 
 Här betyder **nod ett arbetssteg**. [Studio-demot](STUDIO.md) visar stegen som riktiga LangGraph-noder.
-SWE-bench-körningen använder tills vidare den befintliga Python-loopen.
+SWE-bench-CLI och [manuell Studio-överlämning](HANDOFF.md) delar arbetssteg i `workflow.py`.
 Detta beskriver nuvarande byggval och deras syfte. Modellval och budgetar är startvärden som återstår att utvärdera.
 
 ## Flödet att förstå först
@@ -59,7 +59,7 @@ Diagrammet visar agentic-läget. Budgetstopp kan avbryta tidigare. Ett fryst tes
 
 - **Val:** modellen bedömer om träffarna räcker, vad som saknas och om något motsäger annat. Vid luckor kan den formulera nya frågor och återvända till sökningen.
 - **Varför här:** att hitta rätt funktion räcker inte alltid. Vi kan fortfarande sakna importmönster, testförberedelser eller förväntat beteende.
-- **Ut:** gå vidare eller sök igen. Kod: `assess` i [model.py](rag_regression/model.py), loopen i [agent.py](rag_regression/agent.py). Ingen fri webbsökning; detta är inte hela CRAG-artikelns implementation.
+- **Ut:** gå vidare eller sök igen. Svarsformat i [model.py](rag_regression/model.py), arbetssteg i [workflow.py](rag_regression/workflow.py). Ingen fri webbsökning; detta är inte hela CRAG-artikelns implementation.
 
 ### 6. Skriv test — Generation
 
@@ -77,7 +77,7 @@ Diagrammet visar agentic-läget. Budgetstopp kan avbryta tidigare. Ett fryst tes
 
 - **Val:** modellen väljer ny sökning, teständring, kandidat eller stopp. Kandidat kräver ett utfört testfel som modellen bedömer relevant.
 - **Varför här:** nästa handling ska bero på observationen. Fel import kan kräva nya sökträffar; ett passerande test kan behöva andra indata för att utlösa buggen.
-- **Ut:** nästa handling eller avslut. Kod: `decide` i [model.py](rag_regression/model.py) och [agent.py](rag_regression/agent.py). Kandidat är ännu inte bekräftad framgång.
+- **Ut:** nästa handling eller avslut. Kod: `decide` i [workflow.py](rag_regression/workflow.py), svarsformat i [model.py](rag_regression/model.py). Kandidat är ännu inte bekräftad framgång.
 
 ## Avslut och utvärdering — facit kommer in först här
 
@@ -85,7 +85,7 @@ Diagrammet visar agentic-läget. Budgetstopp kan avbryta tidigare. Ett fryst tes
 
 - **Val:** spara senaste giltiga test, kodversion och körmiljö med innehållshash, ett fingeravtryck som upptäcker ändringar.
 - **Varför här:** testet måste vara bestämt innan facit används. Annars kan vi råka anpassa testet efter svaret och få en missvisande mätning.
-- **Ut:** `frozen.json`, även om körningen inte hittade en kandidat. Kod: [agent.py](rag_regression/agent.py).
+- **Ut:** `frozen.json`, även om körningen inte hittade en kandidat. Kod: `freeze` i [workflow.py](rag_regression/workflow.py).
 
 ### 10. Utvärdera, granska och rapportera
 
@@ -97,7 +97,7 @@ Diagrammet visar agentic-läget. Budgetstopp kan avbryta tidigare. Ett fryst tes
 
 | Val | Varför och vad det innebär |
 | --- | --- |
-| En agent; LangGraph/Studio för insyn i demot | Noderna visar indata, utdata och nästa steg. CLI-flödet för SWE-bench finns kvar. Fyra slags modellfrågor betyder inte fyra agenter. |
+| En agent; LangGraph/Studio för insyn | Demo finns kvar. SWE-bench-handoff och API-CLI delar arbetssteg; handoff pausar för importerade svar. Fyra slags modellfrågor betyder inte fyra agenter. |
 | Luna via API; `text-embedding-3-small` för sökning | Konfigurerbara startval. Om Luna räcker jämfört med Terra är ännu inte mätt. |
 | Begränsad loop | Högst 6 sökomgångar, 3 testversioner, 24 API-anrop, 100 000 tokens, 10 minuter och uppskattat $1 per generering. Motverkar obegränsad tid och kostnad; indexering har separat budget. |
 | Baseline jämförs med agentic | Samma sökmetoder, men baseline har en sökomgång och en testversion, även vid svagt underlag. Vi mäter nyttan och kostnaden av hela återkopplingsloopen. |

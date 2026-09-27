@@ -97,7 +97,7 @@ python3.11 -m venv .venv
 ```
 
 De direkta Studio-beroendena är versionslåsta i `pyproject.toml`.
-`langgraph.json` registrerar de två graferna. `.venv`, `.env`, `runs` och serverns `.langgraph_api` är Git-ignorerade.
+`langgraph.json` registrerar demo- och SWE-bench-graferna. `.venv`, `.env`, `runs` och serverns `.langgraph_api` är Git-ignorerade.
 LangChain/OpenAI-paketen från webbplatsens väderexempel behövs inte för vårt demo.
 
 ## Om något inte visas
@@ -116,8 +116,9 @@ Studio-grafen demonstrerar sök-/testgränser, men är inte ersättaren för CLI
 DemoRunner accepterar bara de två inbyggda teststrängarna, även om kod ändras i Studio.
 En godtycklig Luna-genererad testfil ska senare gå genom Docker, inte denna lokala demokörare.
 
-Nästa steg: gå igenom nodernas observationer tillsammans, därefter bygga den kontrollerade bryggan för Luna-svar via Codex.
-Den bryggan och SWE-bench i Studio är ännu inte implementerade.
+Nästa steg finns i [HANDOFF.md](HANDOFF.md): `swe_handoff` kör en förberedd SWE-bench-devuppgift
+med manuell import av modellsvar och Docker. `swe_evaluate` utvärderar separat.
+En automatisk koppling som startar Codex-subagenter ingår inte.
 
 Källor: [LangGraph state/noder](https://docs.langchain.com/oss/python/langgraph/graph-api),
 [lokal utvecklingsserver](https://docs.langchain.com/langsmith/local-dev-testing),

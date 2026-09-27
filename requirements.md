@@ -84,7 +84,8 @@ Granska byggstegen tillsammans. Återkopplingsloopen behöver inte slå baslinje
 
 - SWE-bench Lite: 5 dev + 10 test, seed 42, utan överlappande uppgifts-ID:n. Urval låses i selection.json.
 - Python 3.9+, standardbibliotek, CLI, JSON/JSONL/CSV. En explicit agentloop utan extra ramverk.
-- Valfri lärandevy: LangGraph/Studio och LangSmith, Python 3.11+. Synliga demo-noder med in-/utdata och separat facitgraf. SWE-bench-CLI:t behåller tills vidare sin befintliga loop.
+- Valfri lärandevy: LangGraph/Studio och LangSmith, Python 3.11+. Synliga demo-noder och separata facitgrafer. SWE-bench-handoff och API-CLI delar arbetssteg i `workflow.py`.
+- Manuell modellöverlämning på dev: exportera begränsat underlag, validera/importera svar och registrera proveniens. Aktiv lokal tid skiljs från väntetid; extern token-/kostnadsanvändning är okänd och ingår inte i benchmarkrapportering.
 - GPT-6 Luna via Responses API; text-embedding-3-small och BM25 med RRF. Lokalt JSON-index, 8 träffar.
 - CRAG med strukturerad bedömning och riktade följdsökningar; ingen fri webbsökning.
 - Docker, en färsk container per körning, samma pinnade image före/efter. Inga host-mounts eller nätverk under testet.
