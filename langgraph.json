@@ -2,7 +2,9 @@
   "dependencies": ["."],
   "graphs": {
     "regression_demo": "./rag_regression/studio.py:graph",
-    "evaluate_demo": "./rag_regression/studio.py:evaluation_graph"
+    "evaluate_demo": "./rag_regression/studio.py:evaluation_graph",
+    "swe_handoff": "./rag_regression/handoff_graph.py:graph",
+    "swe_evaluate": "./rag_regression/handoff_graph.py:evaluation_graph"
   },
   "env": ".env"
 }
