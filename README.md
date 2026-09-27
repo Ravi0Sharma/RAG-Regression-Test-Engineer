@@ -1,85 +1,142 @@
 # RAG Regression Test Engineer
 
-One agent creates regression tests for SWE-bench Lite bugs. It reads the issue and source at `base_commit`, retrieves relevant code, and writes a Python test. The test runs before the fix. A separate evaluator then runs **the same frozen test** before and after the reference fix.
+One agent. A SWE-bench bug report. A regression test that fails before the fix and passes after it.
 
-[![Detailed RAG architecture: indexing, query translation, retrieval, CRAG, test generation, and evaluation](assets/architecture.svg)](assets/architecture.svg)
+Built to learn retrieval, test generation and feedback loops. The reference fix stays outside generation.
 
-After a test run, the agent may search again, revise the test, or stop. The reference fix and fixed-version results stay outside test generation.
+## Flow
 
-The local index stores chunks with `repo`, `commit`, `path`, line numbers, `symbol`, `kind`, and text. Hybrid mode adds embeddings. A search request contains up to three queries, source kinds, and one path filter:
+[![Retrieval, test generation and separate evaluation](assets/architecture.svg)](assets/architecture.svg)
+
+`plan → search → assess → generate → execute → decide → freeze`
+
+- **Search:** Multi-Query, routing, BM25 and RAG Fusion. Hybrid mode adds embeddings.
+- **Assess:** check evidence and gaps; search again when needed. CRAG-inspired, adapted to the pinned repository.
+- **Generate / execute:** write `test_rag_regression.py`; run in Docker. Use failures to revise or search again.
+- **Freeze / evaluate:** lock the test; run identical code before and after the reference fix.
+
+Agentic mode can loop. Baseline gets one search and one test version. Limits and models live in [config.json](config.json).
+
+## Run
+
+Python 3.9+, Git, Docker. Default: Luna high, hybrid retrieval, `text-embedding-3-small`. API runs need `OPENAI_API_KEY` in local `.env` or the environment.
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+python -m rag_regression doctor
+python -m rag_regression dataset --split dev --count 5 --out data/dev
+```
+
+Pick `INSTANCE_ID` from `data/dev/selection.json`:
+
+```sh
+TASK=data/dev/public/INSTANCE_ID
+python -m rag_regression prepare "$TASK"
+python -m rag_regression image "$TASK"
+python -m rag_regression index "$TASK"
+python -m rag_regression run "$TASK" --mode agentic --out runs/pilot
+python -m rag_regression evaluate runs/pilot --oracle data/dev/oracle/INSTANCE_ID.json
+```
+
+Use a new output path per run. `image "$TASK" --image IMAGE` accepts a custom image. Put `--config FILE.json` before the subcommand. Use `--mode baseline` for one pass.
+
+Read the test and `evaluation/before/output.log` / `evaluation/after/output.log`. Then record your verdict:
+
+```sh
+python -m rag_regression review runs/pilot --verdict relevant --reason "Why this failure matches the bug"
+```
+
+Offline demo, no Docker or model API: `python -m rag_regression demo --out runs/demo-new`.
+Tests: `python -m unittest discover -s tests -v`.
+
+## Studio
+
+Use a Python **3.11+** environment. Configure local `.env` for LangSmith tracing: `LANGSMITH_TRACING`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`. EU endpoint: `https://eu.api.smith.langchain.com`. Set tracing to `false` to disable trace uploads.
+
+```sh
+python -m pip install -e '.[studio,test]'
+langgraph dev --studio-url https://eu.smith.langchain.com
+```
+
+Open the printed URL. Keep the server running.
+
+- `regression_demo`: submit `{"mode":"agentic"}`. Inspect `sources`, `assessment`, `proposal`, `result`, `next_node`.
+- `evaluate_demo`: submit `{"run_id":"..."}` from the generation output, not Studio's thread ID.
+- `swe_handoff` / `swe_evaluate`: prepared SWE-bench tasks, manual model responses, Docker execution.
+
+Demo responses are fixed; no OpenAI key needed. “Failed to fetch” while localhost works: check browser permission for local network/device access. Evaluate each frozen run once.
+
+<details>
+<summary>Manual model handoff</summary>
+
+Prepare a task in `data/dev/selection.json`. Set `retrieval` to `lexical` before indexing to avoid embedding calls.
+
+```sh
+python -m rag_regression handoff start INSTANCE_ID
+```
+
+Give the external model the current request only. Return `answer` according to its schema. All envelope fields are required:
 
 ```json
 {
-  "queries": ["reported symptom and API", "expected behavior", "existing test pattern"],
-  "kinds": ["code", "tests", "docs"],
-  "path_glob": "*"
+  "request_id": "ID_FROM_CURRENT_REQUEST",
+  "answer": {},
+  "provenance": {
+    "provider": "provider-name",
+    "model": "model-name",
+    "manual_edits": false,
+    "note": ""
+  }
 }
 ```
 
-The program fixes the repository and commit to the selected SWE-bench task. The diagram shows how BM25 and embeddings feed RRF ranking, how test examples get context, and how CRAG can request another search.
+Manual edits: set `manual_edits=true` and explain in `note`.
 
-## What it does
+```sh
+python -m rag_regression handoff respond RUN_ID --file response.json
+python -m rag_regression handoff advance RUN_ID
+python -m rag_regression handoff status RUN_ID
+```
 
-1. **Read the issue.** SWE-bench Lite supplies a bug report, repository, and exact pre-fix commit. Public task data and the reference fix are stored separately.
-2. **Retrieve evidence.** The project indexes code, existing tests, and documentation from that commit. Routing and query construction choose sources and filters. Multi-Query creates search terms; BM25, embeddings, and RAG Fusion rank the results.
-3. **Check the evidence.** CRAG assesses relevance, coverage, and gaps. The agent can read more context, search again, or stop when evidence is insufficient.
-4. **Write and run a test.** The agent proposes `test_rag_regression.py` and runs it in a fresh Docker container at the pre-fix commit. The result guides the next search, revision, or stop.
-5. **Evaluate separately.** The test is frozen with a hash. The evaluator runs identical code before and after the fix. Human review checks whether the failure actually matches the issue.
+Repeat until `next_node=end`. `respond` imports; `advance` executes. After a Docker preflight failure, restore access and retry `advance` on the same run.
 
-## What kind of tests?
+```sh
+python -m rag_regression evaluate runs/handoff/RUN_ID/generation --oracle data/dev/oracle/INSTANCE_ID.json
+```
 
-When the evidence is sufficient, the agent creates one standalone Python test file for a SWE-bench task. It follows evidenced APIs, setup, and test patterns from the target repository. The runner supports `pytest`, `unittest`, and Django tests.
+External agents are started separately. Their tokens and cost are not metered by this application.
 
-Each test checks **observable behavior** from the issue: for example, a return value, a specified exception, or database behavior. The target is a test that fails because of the reported bug before the fix and passes after it. Import errors, environment failures, skipped tests, and tests that never execute do not count.
+</details>
 
-The agent does not write production fixes or use the reference fix to generate tests.
+## Files
 
-## Outputs
+- `rag_regression/`: retrieval, workflow, runner, evaluator, Studio adapters.
+- `tests/`: automated checks.
+- `data/`: local source, index, runtime and separate reference fixes.
+- `runs/`: model packets, test attempts, raw logs and frozen results.
 
-| Path | Contents |
+Data, runs, experiments, local notes and `.env` stay outside Git.
+
+## Example: Django `sqlmigrate`
+
+**Bug:** `sqlmigrate` emitted `BEGIN` / `COMMIT` even when the database could not roll back DDL. Task: `django__django-11039`.
+
+**How Luna handled the fresh run:**
+
+1. Found `sqlmigrate` and existing migration tests in one search.
+2. Judged the evidence sufficient. Generated a test using `TransactionTestCase`.
+3. Registered the app before database setup. Kept `MIGRATION_MODULES` on the test method.
+4. Called the real command with `can_rollback_ddl=False` mocked. Asserted that transaction wrappers were absent.
+5. Saw the `BEGIN;` assertion fail. Selected a candidate. The test was frozen, then evaluated unchanged before and after the reference fix.
+
+| Check | Result |
 | --- | --- |
-| `data/` | Selected tasks, source at `base_commit`, search index, and a separate reference fix. |
-| `runs/.../attempt-*/` | Proposed test file, execution evidence, result, and full log for each executed attempt. |
-| `runs/.../frozen.json` | Frozen test code, path, commit, and integrity hash. |
-| `runs/.../events.jsonl` and `summary.json` | Search and decision history, stop reason, and resource use. |
-| `runs/.../evaluation/` | Before/after runs of the frozen test and review result. |
+| Before fix | Fails on unwanted `BEGIN;` |
+| After fix | Same test passes |
+| Search / test versions / model packets | **1 / 1 / 4** |
 
-`data/`, `runs/`, and `.env` stay local and are ignored by Git. Raw test logs are kept locally for evaluation.
+## References
 
-## Try the offline demo
-
-The demo uses fixed model responses and a small synthetic bug. It checks the workflow, not model quality on SWE-bench. No API key or Docker is needed.
-
-```sh
-python3 -m rag_regression doctor
-python3 -m rag_regression demo --out runs/demo-new
-```
-
-Read `runs/demo-new/report/report.md` afterward. Use a new output path for another run.
-
-## Run a SWE-bench task
-
-Requires Python 3.9+, Git, Docker, and `OPENAI_API_KEY` in a local `.env` or environment variable. The CLI uses Python's standard library. The default `config.json` uses GPT-6 Luna, `text-embedding-3-small`, and hybrid retrieval. Embedding indexing and generation make API calls.
-
-```sh
-python3 -m rag_regression dataset --split dev --count 5 --out data/dev
-TASK=data/dev/public/INSTANCE_ID
-python3 -m rag_regression prepare "$TASK"
-python3 -m rag_regression image "$TASK"
-python3 -m rag_regression index "$TASK"
-python3 -m rag_regression run "$TASK" --mode agentic --out runs/pilot
-python3 -m rag_regression evaluate runs/pilot --oracle data/dev/oracle/INSTANCE_ID.json
-```
-
-Replace `INSTANCE_ID` with an ID from `data/dev/selection.json`. The `image` step needs a compatible SWE-bench image; some tasks need a custom image for dependencies or test setup. Use `--mode baseline` for one search round and one test version. Budgets and retrieval settings are in `config.json`.
-
-After evaluation, inspect `evaluation/before/output.log`, `evaluation/after/output.log`, and the test code. Record a reasoned verdict with `python3 -m rag_regression review ...`. A fail-to-pass transition remains preliminary until relevance is reviewed.
-
-## Status
-
-This is a learning project. One local dev round produced 10/10 technical fail-to-pass transitions: 5 baseline and 5 agentic. Human relevance review and the full comparison on the selected tasks remain open. This is not a general model success rate.
-
-- [Methods and limitations](METHODS.md)
-- [Decisions and workflow](DECISIONS.md)
-- [Studio demo](STUDIO.md)
-- [Requirements and remaining work](requirements.md)
+[SWE-bench Lite](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite)
