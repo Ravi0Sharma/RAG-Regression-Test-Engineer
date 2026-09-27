@@ -36,6 +36,7 @@ class HandoffState(HandoffInput, total=False):
     test_runs: int
     stagnant: int
     unresolved_rounds: int
+    setup_probe: bool
     search_history: list
     bundle_anchor_id: str | None
     previous_signature: str | None
