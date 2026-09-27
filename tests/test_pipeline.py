@@ -17,7 +17,7 @@ from rag_regression.evaluation import evaluate, report, review, verify_frozen
 from rag_regression.model import OpenAIModel, PLAN, validate_schema
 from rag_regression.retrieval import Retriever, build_index, chunks_for_file, rrf
 from rag_regression.runner import DockerRunner, classify, validate_test
-from rag_regression.workflow import Workflow, search_signature
+from rag_regression.workflow import Workflow, search_signature, source_setup_evidence
 
 
 def row(identifier="demo__labels-1"):
@@ -77,6 +77,61 @@ class DataTests(Workspace):
 
 
 class RetrievalTests(Workspace):
+    def test_context_includes_bounded_same_command_fixture_alternatives(self):
+        directory, config = self.task()
+        code = '''from django.test import override_settings
+
+@override_settings(MIGRATION_MODULES={"demo": "demo.atomic_fixture"})
+def test_forward():
+    run_command("render", "0001")
+
+def test_backward():
+    run_command("render", "0002")
+
+def test_unrelated():
+    run_command("apply", "0001")
+
+@override_settings(MIGRATION_MODULES={"demo": "demo.non_atomic_fixture"})
+def test_selected():
+    run_command("render", "0003")
+'''
+        (directory / "source/test_commands.py").write_text(code)
+        retriever = Retriever(build_index(directory, config), row(), config)
+        selected = next(c for c in retriever.chunks.values() if c["symbol"] == "test_selected")
+        context = [retriever.chunks[key] for key in retriever.context_ids(selected["id"])]
+        names = {c["symbol"] for c in context}
+        self.assertTrue({"test_forward", "test_backward"} <= names)
+        self.assertNotIn("test_unrelated", names)
+        facts = source_setup_evidence(context)
+        self.assertTrue(any(f["settings"].get("MIGRATION_MODULES") == {"demo": "demo.atomic_fixture"}
+                            for f in facts))
+
+    def test_setup_evidence_is_literal_and_keeps_source_provenance(self):
+        text = '''@override_settings(MIGRATION_MODULES={"app": "app.fixture"}, INSTALLED_APPS=load_secret())
+def test_example():
+    pass
+'''
+        source = next(chunks_for_file("tests/test_example.py", text, row(), 100))
+        facts = source_setup_evidence([source])
+        self.assertEqual(facts, [{"source_id": source["id"], "path": source["path"],
+                                "line": 1, "scope": "function",
+                                "settings": {"MIGRATION_MODULES": {"app": "app.fixture"}}}])
+
+    def test_setup_evidence_distinguishes_fixture_scope_from_module_bootstrap(self):
+        source = {"id": "example", "path": "tests/test_example.py", "start": 10,
+                  "text": '''bootstrap = override_settings(INSTALLED_APPS=['app'])
+@override_settings(CLASS_SETTING=True)
+class ExampleTests:
+    @override_settings(MIGRATION_MODULES={'app': 'app.fixture'})
+    def test_example(self):
+        with self.settings(INNER_SETTING=1):
+            pass
+'''}
+        facts = source_setup_evidence([source])
+        by_setting = {key: fact["scope"] for fact in facts for key in fact["settings"]}
+        self.assertEqual(by_setting, {"INSTALLED_APPS": "module", "CLASS_SETTING": "class",
+                                      "MIGRATION_MODULES": "function", "INNER_SETTING": "function"})
+
     def test_blank_class_fragments_never_displace_imports_and_setup(self):
         directory, config = self.task()
         text = "import unittest\n\nclass ManyTests(unittest.TestCase):\n"
@@ -505,6 +560,23 @@ class AgentTests(Workspace):
         return Workflow(directory, self.root / "run", config, Budget(config),
                         Events(self.root / "run/events.jsonl"), DemoRunner(row(), config))
 
+    def test_configured_revision_budget_allows_repairs_after_third_version(self):
+        flow = self.workflow(Config(retrieval="lexical", max_test_versions=6))
+        decision = {"action": "revise", "relevant": False, "reason": "Repair setup",
+                    "queries": [], "kinds": [], "path_glob": "*"}
+        for version in (3, 5, 6):
+            state = flow.prepare("agentic")
+            state.update(test_versions=version, proposal={"code": CORRECT},
+                         result={"status": "test_failure"})
+            result = flow.decide(state, decision)
+            self.assertEqual(result["next_node"], "generate" if version < 6 else "freeze")
+            if version == 6:
+                self.assertEqual(result["stop_reason"], "test_version_budget")
+        state = flow.prepare("baseline")
+        state.update(test_versions=1, proposal={"code": CORRECT},
+                     result={"status": "test_failure"})
+        self.assertEqual(flow.decide(state, decision)["stop_reason"], "single_pass_complete")
+
     def test_filename_normalization_preserves_code_and_never_overwrites_source(self):
         flow = self.workflow()
         state = flow.prepare("baseline")
@@ -538,7 +610,7 @@ class AgentTests(Workspace):
         self.assertEqual(state["test_runs"], 0)
 
     def test_untried_search_survives_same_gap_but_cannot_exceed_budget(self):
-        flow = self.workflow(Config(retrieval="lexical", max_search_rounds=3))
+        flow = self.workflow(Config(retrieval="lexical", max_search_rounds=3, max_stagnant_steps=4))
         state = flow.prepare("agentic")
         answer = {"sufficient": False, "missing_categories": ["setup"], "missing": ["fixture"],
                   "queries": ["first"], "kinds": ["tests"], "path_glob": "*"}
@@ -550,6 +622,53 @@ class AgentTests(Workspace):
                 self.assertEqual(state["next_node"], "search" if query != "fourth" else "freeze")
         self.assertEqual(state["stop_reason"], "search_budget")
         self.assertEqual(search_signature({**answer, "queries": [" FIRST  "]}), search_signature(answer))
+
+    def test_rephrased_setup_gap_routes_to_budgeted_probe_without_claiming_sufficiency(self):
+        flow = self.workflow(Config(retrieval="lexical", max_stagnant_steps=2))
+        example = next(chunks_for_file("tests/test_example.py", "def test_example():\n    run_command('render')\n", row(), 100))
+        flow.retriever.chunks[example["id"]] = example
+        state = flow.prepare("agentic")
+        state["sources"] = [example]
+        answer = {"sufficient": False, "missing_categories": ["setup"], "missing": ["importability"],
+                  "contradictions": [], "queries": ["first setup search"], "kinds": ["tests"], "path_glob": "*"}
+        state = flow.assess(state, answer)
+        self.assertEqual(state["next_node"], "search")
+        state = flow.assess(state, {**answer, "queries": ["entirely different wording"]})
+        self.assertEqual(state["next_node"], "generate")
+        self.assertTrue(state["setup_probe"])
+        self.assertFalse(state["assessment"]["sufficient"])
+        self.assertFalse(state["candidate"])
+        self.assertTrue(flow.context(state)["setup_probe"])
+        state["test_versions"] = flow.config.max_test_versions
+        self.assertEqual(flow.gate(state)["stop_reason"], "test_version_budget")
+
+    def test_uncertain_behavior_or_contradictions_cannot_trigger_setup_probe(self):
+        flow = self.workflow(Config(retrieval="lexical", max_stagnant_steps=2))
+        example = next(chunks_for_file("tests/test_example.py", "def test_example():\n    run_command('render')\n", row(), 100))
+        flow.retriever.chunks[example["id"]] = example
+        for categories, contradictions in ((["api", "setup"], []), (["setup"], ["conflicting expected output"])):
+            state = flow.prepare("agentic")
+            state["sources"] = [example]
+            answer = {"sufficient": False, "missing_categories": categories, "missing": ["gap"],
+                      "contradictions": contradictions, "queries": ["one"], "kinds": ["tests"], "path_glob": "*"}
+            state = flow.assess(state, answer)
+            state = flow.assess(state, {**answer, "queries": ["two"]})
+            self.assertEqual(state["stop_reason"], "unresolved_evidence")
+            self.assertFalse(state["setup_probe"])
+
+    def test_assessment_after_failed_test_includes_code_and_settings_evidence(self):
+        flow = self.workflow()
+        state = flow.prepare("agentic")
+        source = next(chunks_for_file("tests/test_example.py",
+                      "@override_settings(MIGRATION_MODULES={'app': 'app.fixture'})\ndef test_example():\n    pass\n", row(), 100))
+        proposal = {"path": "test_rag_regression.py", "code": "missing fixture override"}
+        state.update(next_node="assess", sources=[source], proposal=proposal,
+                     result={"status": "test_failure", "detail": "no migrations"})
+        context = flow.context(state)
+        self.assertEqual(context["previous_test"], proposal)
+        self.assertEqual(context["previous_result"], state["result"])
+        self.assertEqual(context["setup_evidence"][0]["settings"],
+                         {"MIGRATION_MODULES": {"app": "app.fixture"}})
 
     def test_context_expansion_reserves_space_for_previous_api_evidence(self):
         flow = self.workflow(Config(retrieval="lexical", top_k=2))

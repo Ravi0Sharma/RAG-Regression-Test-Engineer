@@ -1,8 +1,10 @@
 """Shared bounded steps. Model acquisition belongs to the CLI or handoff caller."""
 
 from dataclasses import asdict
+import ast
 import json
 from pathlib import Path
+import textwrap
 
 from .core import BudgetExceeded, digest, read_json, safe_relative, write_json
 from .data import public_task
@@ -11,6 +13,45 @@ from .retrieval import Retriever, source_hash
 from .runner import validate_test
 
 STAGES = ("plan", "search", "assess", "generate", "execute", "decide", "freeze")
+
+
+def source_setup_evidence(sources):
+    """Expose literal test settings with provenance; never execute source code."""
+    evidence = []
+    for source in sources:
+        try:
+            tree = ast.parse(textwrap.dedent(source.get("text", "")))
+        except SyntaxError:
+            continue
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+            if name not in {"override_settings", "settings"}:
+                continue
+            settings = {}
+            for keyword in node.keywords:
+                if not keyword.arg or not keyword.arg.isupper():
+                    continue
+                try:
+                    value = ast.literal_eval(keyword.value)
+                    json.dumps(value)  # Only JSON-safe literals go to the model.
+                except (ValueError, TypeError, SyntaxError):
+                    continue
+                settings[keyword.arg] = value
+            if settings:
+                owner = parents.get(node)
+                while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    owner = parents.get(owner)
+                scope = ("class" if isinstance(owner, ast.ClassDef) else
+                         "function" if owner is not None else "module")
+                evidence.append({"source_id": source["id"], "path": source["path"],
+                                 "line": source["start"] + node.lineno - 1,
+                                 "scope": scope, "settings": settings})
+                if len(evidence) == 16:
+                    return evidence
+    return evidence
 
 
 def search_signature(route):
@@ -83,7 +124,7 @@ class Workflow:
                 "assessment": {}, "proposal": {}, "test": None, "result": None, "decision": {},
                 "model_input": {}, "candidate": False, "stop_reason": "unknown", "error": None,
                 "search_rounds": 0, "test_versions": 0, "test_runs": 0,
-                "stagnant": 0, "unresolved_rounds": 0, "search_history": [],
+                "stagnant": 0, "unresolved_rounds": 0, "setup_probe": False, "search_history": [],
                 "previous_signature": None, "bundle_anchor_id": None, "next_node": "plan",
                 "frozen": None, "summary": {}, "explanation": "Förberett vald kodversion, sökindex och körmiljö."}
 
@@ -93,6 +134,7 @@ class Workflow:
         if stage == "assess":
             extra = {"sources": state["sources"], "search_trace": state["search_trace"],
                      "previous_assessment": state["assessment"], "previous_result": state["result"],
+                     "previous_test": state["proposal"] or None,
                      "source_summary": {"available_count": len(state["sources"]),
                          "retained_from_previous_search": len(state["search_trace"].get("retained_ids", []))}}
         elif stage == "generate":
@@ -102,13 +144,20 @@ class Workflow:
         elif stage == "decide":
             extra = {"test": state["proposal"], "result": state["result"], "sources": state["sources"]}
         return {"task": self.task, "test_backend": self.runner.runtime["backend"],
+                "max_queries": self.config.max_queries,
+                "setup_evidence": source_setup_evidence(state["sources"]),
+                "setup_probe": state.get("setup_probe", False),
                 "runner_setup": {
                     "source_tree": "read-only; create temporary fixtures outside it",
-                    "django": "When backend=django: uses test_sqlite by default, calls django.setup(), then imports the standalone test module before DiscoverRunner database setup. Does not run the repository's runtests.py bootstrap.",
-                    "django_database": "Use django.test.TestCase for ordinary database tests or TransactionTestCase for transaction/schema work. Plain unittest.TestCase does not request a Django test database; the supplied SQLite settings may have no NAME until test database setup. Query construction alone may need no database access.",
+                    "django": "When backend=django: prepends <repo>/tests and <repo> to sys.path, uses test_sqlite by default, calls django.setup(), then imports the standalone test module before DiscoverRunner database setup. Does not run the repository's runtests.py bootstrap. These import roots are runner facts, not information to rediscover by searching.",
+                    "django_database": ("Use django.test.TestCase for ordinary database tests. For migration/schema operations, including sqlmigrate with collect_sql, "
+                        "import and inherit django.test.TransactionTestCase. TestCase opens atomic transactions before the test runs; SQLite's schema editor "
+                        "cannot disable foreign-key checks inside them, even for SQL collection. Do not wrap schema work in an explicit atomic block "
+                        "or hide the error with skips, exception-catching or mocked constraint checks. Plain unittest.TestCase does not request a Django test "
+                        "database; the supplied SQLite settings may have no NAME until database setup. Query construction alone may need no database access."),
                     "django_apps": ("Use import paths or AppConfig paths supported by retrieved source; INSTALLED_APPS takes app paths, not guessed labels. "
-                        "When the standalone runner needs a source-backed app for database setup, first confirm from settings/source that it is not already registered, "
-                        "including under an alternate AppConfig path. Before importing models, use this module-level pattern:\n```python\n"
+                        "For a source-backed app, the registry check below determines whether it is already registered, including an alternate AppConfig path. "
+                        "Do not search repeatedly to prove installation first. Before importing models, use this module-level pattern:\n```python\n"
                         "from django.conf import settings\nfrom django.test.utils import override_settings\n\n"
                         "from django.apps import apps\nfrom django.apps.config import AppConfig\n\n"
                         "app_path = 'source.backed.app.path'  # replace with path from retrieved source\n"
@@ -121,7 +170,9 @@ class Workflow:
                         "def tearDownModule():\n    _rag_apps.disable()\n```\n"
                         "Keep the override enabled through DiscoverRunner database setup. Preserve existing installed apps. "
                         "MIGRATION_MODULES selects a migrations module and does not register an app; available_apps limits a test's app registry "
-                        "and does not register an app either. Add only apps evidenced by retrieved source, not guesses."),
+                        "and does not register an app either. Preserve the source scope of fixture overrides: a test/class MIGRATION_MODULES override "
+                        "belongs on the test/class, after database creation, not in the module-level INSTALLED_APPS bootstrap. Fixture migrations may "
+                        "intentionally omit tables for models in the installed app. Add only apps evidenced by retrieved source, not guesses."),
                     "dependencies": "Runner dependency check does not establish task-specific fixtures or settings."},
                 "remaining_search_rounds": max(0, self.limit(state, "search_rounds") - state["search_rounds"]),
                 "remaining_test_versions": max(0, self.limit(state, "test_versions") - state["test_versions"]), **extra}
@@ -198,15 +249,27 @@ class Workflow:
         # unresolved evidence. A strict reduction or entirely different gap restarts it.
         repeated = bool(previous & current) and not current < previous
         state["unresolved_rounds"] = (state.get("unresolved_rounds", 0) + 1 if repeated else 1) if not answer["sufficient"] else 0
-        state.update(assessment=answer, next_node="generate", explanation="Bedömt relevans, luckor och täckning.")
+        state.update(assessment=answer, setup_probe=False, next_node="generate", explanation="Bedömt relevans, luckor och täckning.")
         signature = digest(str(sorted(h["id"] for h in state["sources"])))
         same_route = search_signature(answer) in state.get("search_history", [])
         progressed = self.progress(state, signature) if not answer["sufficient"] else True
+        # Uncertain setup can be tested without asserting that the evidence is
+        # complete. Do not let query paraphrases buy unlimited reassessment.
+        exhausted_gap = state["unresolved_rounds"] >= self.config.max_stagnant_steps
+        if not answer["sufficient"] and state["mode"] == "agentic" and exhausted_gap:
+            grounded_test = any(source["id"] in self.retriever.chunks
+                                and self.retriever.is_test_pattern(source["id"])
+                                for source in state["sources"])
+            if current == {"setup"} and grounded_test and not answer.get("contradictions"):
+                state.update(setup_probe=True, next_node="generate",
+                             explanation="API/testmönster finns; kvarvarande setup-osäkerhet prövas i ett budgeterat testförsök.")
+                self.events.emit("setup_probe", unresolved_rounds=state["unresolved_rounds"],
+                                 missing=answer.get("missing", []))
+                return self.gate(state)
+            return self.stop(state, "unresolved_evidence")
         if not answer["sufficient"] and same_route and not progressed:
             return self.stop(state, "no_progress")
         if not answer["sufficient"] and state["mode"] == "agentic":
-            if same_route and current and state["unresolved_rounds"] >= self.config.max_stagnant_steps:
-                return self.stop(state, "unresolved_evidence")
             state.update(route=answer, next_node="search")
         return self.gate(state)
 
@@ -219,6 +282,7 @@ class Workflow:
             self.events.emit("test_path_normalized", requested=answer["path"], path=normalized)
             answer = {**answer, "path": normalized}
         state.update(proposal=answer, test_versions=state["test_versions"] + 1,
+                     unresolved_rounds=0,
                      next_node="execute", explanation="Tagit emot ett testförslag; ännu inte kört.")
         return state
 
