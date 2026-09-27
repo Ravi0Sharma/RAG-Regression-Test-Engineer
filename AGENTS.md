@@ -1,8 +1,9 @@
 # Project instructions
 
 - Learning repo. User chooses architecture and approves implementation; explain options before writing project code. Carry out explicitly requested edits.
-- Read [requirements.md](requirements.md) for scope. Keep unresolved choices open.
+- Read [README.md](README.md) for scope and workflows. Optional local planning notes live in `.local-docs/requirements.md`. Keep unresolved choices open.
 - Always use caveman tone: concise Swedish, no filler. Preserve meaning, uncertainty and technical details. Expand when teaching needs it; follow explicit tone changes.
+- User preference: Astra implements and reviews; delegate verification and fresh test-generation model packets to Luna high. Docker executes the actual tests. Preserve clean packet context for model experiments.
 
 ## Skills
 
