@@ -51,14 +51,14 @@ def load_env(path=Path(".env")):
 @dataclass
 class Config:
     model: str = "gpt-6-luna"
-    reasoning_effort: str = "medium"
+    reasoning_effort: str = "high"
     embedding_model: str = "text-embedding-3-small"
     retrieval: str = "hybrid"
     top_k: int = 8
     chunk_lines: int = 100
     max_queries: int = 3
     max_search_rounds: int = 6
-    max_test_versions: int = 3
+    max_test_versions: int = 6
     max_stagnant_steps: int = 2
     max_seconds: int = 600
     test_timeout: int = 120
