@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .core import Config, digest, read_json, safe_relative, write_json
 from .data import public_task
-from .runner import DockerRunner
+from .runner import DockerRunner, preflight_docker
 
 
 def verify_frozen(frozen):
@@ -26,11 +26,14 @@ def evaluate(run_directory, oracle_path, runner_factory=DockerRunner):
         raise ValueError("Evaluation already exists; preserve it and use a new generation run")
     frozen = read_json(run_directory / "frozen.json")
     task = public_task(read_json(run_directory / "task.json"))
-    oracle = read_json(oracle_path)
-    if (frozen["instance_id"] != task["instance_id"] or oracle["instance_id"] != task["instance_id"]
-        or frozen["base_commit"] != task["base_commit"] or oracle["base_commit"] != task["base_commit"]):
-        raise ValueError("Task, frozen test and oracle identity must match")
+    if frozen["instance_id"] != task["instance_id"] or frozen["base_commit"] != task["base_commit"]:
+        raise ValueError("Task and frozen test identity must match")
     verify_frozen(frozen)
+    if runner_factory is DockerRunner:
+        preflight_docker(frozen["runtime"], "the same evaluate command")
+    oracle = read_json(oracle_path)
+    if oracle["instance_id"] != task["instance_id"] or oracle["base_commit"] != task["base_commit"]:
+        raise ValueError("Task and oracle identity must match")
     if not oracle["patch"].strip():
         raise ValueError("Missing reference fix")
     config = Config.load(run_directory / "config.json")
@@ -80,6 +83,8 @@ def report(root, selection, destination):
         found[key] = (path.parent, run)
     configurations = []
     for directory, run in found.values():
+        if run.get("manual_handoff"):
+            raise ValueError("Manual handoff has unmetered external usage; keep its evaluation separate from benchmark reports")
         config = read_json(directory / "config.json")
         configurations.append({key: value for key, value in config.items() if key != "max_cost_usd"})
     if configurations and any(c != configurations[0] for c in configurations):
